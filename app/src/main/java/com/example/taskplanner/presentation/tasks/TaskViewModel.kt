@@ -37,6 +37,7 @@ class TaskViewModel @Inject constructor(
     val state: StateFlow<TaskUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    private var isSearchFocused = false
 
     init {
         viewModelScope.launch {
@@ -45,8 +46,17 @@ class TaskViewModel @Inject constructor(
         loadAll()
     }
 
+    private fun updateShowHistory() {
+        val currentState = _state.value
+        val shouldShow = isSearchFocused && currentState.query.isEmpty() && currentState.history.isNotEmpty()
+        if (currentState.showHistory != shouldShow) {
+            _state.update { it.copy(showHistory = shouldShow) }
+        }
+    }
+
     fun onQueryChange(q: String) {
         _state.update { it.copy(query = q) }
+        updateShowHistory()
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             delay(350)
@@ -64,6 +74,7 @@ class TaskViewModel @Inject constructor(
     }
 
     fun onHistoryClick(item: String) {
+        addToHistory(item)
         _state.update { it.copy(query = item, showHistory = false) }
         performSearch(item)
     }
@@ -91,12 +102,18 @@ class TaskViewModel @Inject constructor(
             cur.add(0, item)
             while (cur.size > 10) cur.removeAt(cur.lastIndex)
             prefs.saveHistory(cur)
+            _state.update { it.copy(history = cur) }
+            updateShowHistory()
         }
     }
 
     private fun loadAll() = performSearch(null)
 
     private fun performSearch(q: String?) {
+        val query = q?.takeIf { it.isNotBlank() }
+        if (query != null) {
+            addToHistory(query)
+        }
         viewModelScope.launch {
             _state.update { it.copy(status = ListStatus.LOADING, lastQuery = q) }
             runCatching { getTasks(q?.takeIf { it.isNotBlank() }) }
